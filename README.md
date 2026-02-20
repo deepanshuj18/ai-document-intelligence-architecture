@@ -2,7 +2,7 @@
 
 # Utility Bill AI Agent — Case Study
 
-## TL;DR
+## 
 
 A production-grade, multi-provider AI document processing pipeline that:
 - Extracts structured financial data from raw utility bills
