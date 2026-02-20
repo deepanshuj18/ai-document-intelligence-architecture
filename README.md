@@ -1,6 +1,5 @@
 
-
-# Utility Bill AI Agent — Case Study
+  #  Utility Bill AI Agent — Case Study
 
 ## 
 
@@ -351,6 +350,144 @@ A single API call can process a batch of files. Each file gets its own result ob
 
 ---
 
+## 🌍 External API Integrations
+
+The agent orchestrates three categories of external APIs. Each integration includes timeout handling, retry logic, response validation, and graceful degradation — designed for production reliability.
+
+---
+
+### 1️⃣ Geocoding — Nominatim (OpenStreetMap)
+
+**Why:** Utility bills provide a human-readable `service_address`. Solar production modeling requires `lat/lon`. Nominatim converts address → coordinates for free, without vendor lock-in.
+
+**Data Flow:**
+```
+Extracted Address (LLM)  →  Nominatim API  →  lat/lon  →  PVWatts API
+```
+
+**Example Request:**
+```
+GET https://nominatim.openstreetmap.org/search
+    ?q=123+Main+St+San+Jose+CA&format=json
+```
+
+**Response:**
+```json
+[{ "lat": "37.3382", "lon": "-121.8863", "display_name": "..." }]
+```
+
+**Engineering Decisions:**
+- Custom `User-Agent` header (required by Nominatim ToS)
+- Async HTTP client — non-blocking, no thread starvation
+- Timeout guard + retry on transient failures
+- Response schema validation before usage (checked for non-empty array)
+
+**Failure Handling:**
+- Empty or ambiguous result → fallback to regional average assumptions
+- API timeout → telemetry event logged, pipeline continues with degraded confidence score
+
+---
+
+### 2️⃣ Solar Production Modeling — NREL PVWatts API
+
+**Why:** Rather than building a physics simulation, the system uses NREL PVWatts — the industry-standard solar irradiance and production modeling API — to produce accurate, location-specific annual energy yield estimates.
+
+**Data Flow:**
+```
+lat/lon + System Size (kW)  →  PVWatts API  →  ac_annual (kWh)  →  FinancialModelService
+```
+
+**Example Request:**
+```
+GET https://developer.nrel.gov/api/pvwatts/v8.json
+    ?api_key=${NREL_API_KEY}
+    &lat=37.3382
+    &lon=-121.8863
+    &system_capacity=7.5
+    &module_type=1
+    &losses=14
+```
+
+**Response (key fields extracted):**
+```json
+{
+  "outputs": {
+    "ac_annual": 13061,
+    "capacity_factor": 18.5
+  }
+}
+```
+
+**Engineering Decisions:**
+- API key stored in `.env` — never hardcoded
+- Validated `outputs.ac_annual` existence before propagation
+- 3–5 second timeout with retry for transient errors
+- Fallback heuristic if PVWatts is unavailable: `annual_kwh = system_kw × 1500`
+
+**Failure Handling:**
+- API down → fallback estimation used, `confidence_score` reduced, telemetry event logged
+- Invalid coordinates → exception caught at orchestration layer, proposal marked as estimated
+
+---
+
+### 3️⃣ Multi-Provider LLM APIs (Gemini / Claude / OpenAI)
+
+**Why:** No single provider is optimal for every task type. Claude excels at visual document understanding; Gemini Flash is fastest and cheapest at high-volume text-to-JSON extraction; routing intelligently across them reduces cost and improves reliability.
+
+**Routing Logic:**
+```
+Task Type?
+  ├── Vision (image bill)   →  Claude → Gemini → OpenAI
+  └── Text/JSON extraction  →  Gemini → Claude → OpenAI  (cost-optimized)
+```
+
+**Resilience Pattern:**
+```python
+for provider in preferred_order:
+    try:
+        return await llm_gateway.generate(provider=provider, ...)
+    except RateLimitError:
+        continue   # Try next provider
+    except TimeoutError:
+        continue
+raise ValueError("All providers exhausted")
+```
+
+**Reliability Features:**
+
+| Feature | Detail |
+|---------|--------|
+| JSON-constrained prompting | Prompts enforce `{...}` output, no preamble or markdown |
+| Multi-layer response parser | `json.loads()` → regex `{...}` extraction → null-safe default |
+| Temperature control | `temperature=0.1` — deterministic extraction, not creative generation |
+| Token budget | `max_tokens=4000` to prevent runaway costs on large bills |
+| Rate-limit handling | Provider skipped on `429`, next in priority list tried |
+
+---
+
+### 🔁 End-to-End Integration Flow
+
+```
+Upload Bill
+    ↓
+LLM Vision / OCR  →  Structured JSON (BillData)
+    ↓
+Extract service_address
+    ↓
+Nominatim  →  lat / lon
+    ↓
+NREL PVWatts  →  ac_annual kWh
+    ↓
+FinancialModelService  →  25-Year Savings, Payback Period
+    ↓
+ReportGeneratorService  →  PDF Output
+```
+
+> [!TIP]
+> In interviews: this isn't just "API usage" — it's **orchestrated workflow automation** across geocoding, solar physics modeling, and multi-provider AI. Each external dependency has a defined fallback, so the pipeline degrades gracefully rather than failing hard.
+
+---
+
 ## 📈 Results & Impact
 
 - ⚡ **Bill processing time:** ~30–60 seconds (vs 3–5 minutes manual)
@@ -393,3 +530,4 @@ This repository is a **case study / documentation** of a production system I bui
 ---
 
 *Built with care for correctness, reliability, and cost-efficiency — because production AI systems are only as good as their worst failure mode.*
+
