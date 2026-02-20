@@ -1,5 +1,4 @@
-
-  #  Utility Bill AI Agent — Case Study
+#  Utility Bill AI Agent — Case Study
 
 ## 
 
@@ -341,12 +340,12 @@ A single API call can process a batch of files. Each file gets its own result ob
 |-------|-----------|
 | API Framework | FastAPI (async, streaming) |
 | Async Runtime | Python asyncio, `run_in_threadpool` |
-| AI/LLM | Google Gemini 2.0 Flash, Claude 3 Opus/Haiku, GPT-4o/3.5 |
-| OCR Engine | Tesseract OCR + Poppler (PDF → image rasterization) |
-| Data Models | Pydantic v2 |
+| AI/LLM | Gemini 2.0 Flash (Vision + Structured JSON extraction), Claude 3 Opus/Haiku, GPT-4o |
+| Document Extraction | Vision-first LLM parsing (primary) + Tesseract OCR + Poppler (fallback) |
+| Data Validation | Pydantic v2 structured models |
 | PDF Generation | FPDF2 + Matplotlib |
 | Observability | Structured logging + custom TelemetryService |
-| Container | Docker + Docker Compose |
+| Containerization | Docker + Docker Compose |
 
 ---
 
@@ -530,4 +529,5 @@ This repository is a **case study / documentation** of a production system I bui
 ---
 
 *Built with care for correctness, reliability, and cost-efficiency — because production AI systems are only as good as their worst failure mode.*
+
 
